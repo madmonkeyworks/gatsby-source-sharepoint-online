@@ -1,6 +1,9 @@
 const { createClient } = require("./client");
 const { Resource } = require("./resource");
 
+exports.onPreInit = () =>
+  console.log("Loaded gatsby-source-sharepoint-online plugin")
+
 /**
  * @typedef {import('gatsby').SourceNodesArgs} Helpers
  */
