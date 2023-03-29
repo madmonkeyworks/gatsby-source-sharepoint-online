@@ -3,127 +3,197 @@
  * @typedef {import('@microsoft/microsoft-graph-client').Client} Client
  */
 
+/**
+ * Generate a list URL used for requests 
+ * @param {any} site The item to validate.
+ * @param {string} list The item to validate.
+ * @param {string} host The item to validate.
+*/
 const generateListItemsUrl = (site, list, host) => {
   const base = `/sites/${host}`;
   return `${base}:/${site.relativePath}:/lists/${encodeURI(list.title)}/items`;
 };
-const fs = require("fs");
+
+/**
+ * Generate a URL used for requesting list's site asset drive item (e.g. image)
+ * @param {any} site The item to validate.
+ * @param {string} itemID The item to validate.
+ * @param {string} host The item to validate.
+*/
+const generateListAssetItemUrl = (site, itemID, host) => {
+  const base = `/sites/${host}`;
+  return `${base}:/${site.relativePath}:/lists/${encodeURI("Site Assets")}/items/${itemID}/driveItem/content`;
+};
+
 class Resource {
   /**
    * The type of this resource.
-   * @type {'list' | 'drive'}
+   * @type { 'list' }
    */
   type;
 
   /**
    * Construct a resource.
-   * @param {'list' | 'drive'} type The type of resource.
+   * @param { 'list' } type The type of resource.
    */
   constructor(type) {
     this.type = type;
-
-    if (type === "drive") {
-      console.warn("Drives are not yet supported.");
-    }
+    this.imageFieldSuffix = 'Image';
   }
 
   /**
-   * Validates a resource item such as a list or drive definition.
-   * @param {any} item The item to validate.
+   * Validates a list resource item 
+   * @param {any} list The item to validate.
    */
-  validate(item) {
+  validateList(list) {
     const isValid =
-      this.type !== "drive" && item !== undefined && Boolean(item.title);
+      this.type === "list" && list !== undefined && Boolean(list.title);
     if (!isValid) {
-      console.warn(`Invalid resource item: ${JSON.stringify(item)}`);
+      console.warn(`Invalid resource list: ${JSON.stringify(list)}`);
     }
 
     return isValid;
   }
 
   /**
+   * Normalize a list name 
+   * @param {Object} list The list to retrieve title from and normalize it.
+   */
+  normalizeListName(list) {
+    let name = list.customNodeName || list.title
+    return name.replace(" ", "");
+  }
+  
+  /**
+   * Generate a list node type name
+   * @param {string} listName The list to normalize.
+   */
+  generateListNodeType(listName) {
+    return `SharePoint${listName}List`
+  }
+  /**
+  * Generate image field name for custom schema
+  * @param {string} field The item to validate.
+  */
+  generateImageFieldName = (field) => {
+    return `${field}${this.imageFieldSuffix}`;
+  }
+
+  /**
+   * LISTS RESOURCE CLASS
    * Create a graph resource request.
    * @param {string} host The SharePoint host.
    * @param {any} site The site definition object.
    * @param {Client} graph The graph client.
    * @param {Helpers} helpers The Gatsby sourceNode API helpers.
    */
-  requestFactory(host, site, graph, helpers) {
-    return async (item) => {
+  requestLists(host, site, graph, helpers) {
+    
+    return async (list) => {
+      
+      const listName = this.normalizeListName(list)
+      
       let request = graph
-        .api(generateListItemsUrl(site, item, host))
-        .expand("fields");
+        .api(generateListItemsUrl(site, list, host))
 
-      if (item.fields && Array.isArray(item.fields)) {
-        request = request.expand(`fields($select=${item.fields.join(",")})`);
+      // Select fields
+      if (list.fields && Array.isArray(list.fields)) {
+        const selects = [];
+        list.fields.forEach(f => {
+          if (typeof f === 'string' ) {
+            selects.push(f)
+          }
+          if (typeof f === 'object' ) {
+            selects.push(f.fieldName)
+          }
+        })
+        if (selects) {
+          request = request.expand(`fields($select=${selects.join(",")})`);
+        } else {
+          request = request.expand("fields");
+        }
       }
-
-      const normalizedListName = item.title.replace(" ", "");
-      const normalizedCustomNodeName = item.customNodeName?.replace(" ", "") || null;
-
-      /* 
-      TODO!
-      MS Graph paginates results by default. Max amount is 200 results per page. We need to pull all results at once. 
-      Use PageIterator to iterate through all pages and pull all data.
-      See https://github.com/microsoftgraph/msgraph-sdk-javascript/blob/5183690123f81fc4170ce9e70cf0628d377f5fbc/docs/tasks/PageIterator.md
-      */
-      /*
-      try {
-        const entry = [];
-        
-        // Makes request to fetch mails list. Which is expected to have multiple pages of data.
-        PageCollection = await request.get();
-        
-        // A callback function to be called for every item in the collection. This call back should return boolean indicating whether not to continue the iteration process.
-        let callback = (data) => {
-          entry.push(data);
-          return true;
-        };
-        
-        // Creating a new page iterator instance with client a graph client instance, page collection response from request and callback
-        let pageIterator = new PageIterator(request, PageCollection, callback);
-        
-        // This iterates the collection until the nextLink is drained out.
-        await pageIterator.iterate();
-      } catch (e) {
-        throw e;
-      }
-*/
+      
       await request.get().then(entry => {
-        const postNodeType = `SharePoint${normalizedCustomNodeName ? normalizedCustomNodeName : normalizedListName}List`;
+        const nodeType = this.generateListNodeType(listName);
         entry.value.forEach((data) => {
-          // Create slug for the node
-          if (item.createSlugs && Array.isArray(item.slugTemplate) && item.slugFieldName !== undefined) {
-            // Construct slug from configuration
-            const prepareSlug = [];
-            item.slugTemplate.map( field => {
-              prepareSlug.push(data.fields[field] ? data.fields[field] : field);
-            });
-            const slug = prepareSlug.join("-")
-              .replace()
-              .toLowerCase()
-              .trim()
-              .replace(/[^\w\s-]/g, "")
-              .replace(/[\s_-]+/g, "-")
-              .replace(/^-+|-+$/g, "");
-            const slugFieldName = item.slugFieldName ? item.slugFieldName : "slug";
-            // Add slug to node fields
-            data.fields[slugFieldName] = slug;
-            console.log(`Page for list ${item.title} created`) 
-          } 
-          helpers.actions.createNode({
+          
+          const nodeId = helpers.createNodeId(`${nodeType}-${data.id}`);
+          const node = {
             data,
-            id: helpers.createNodeId(`${postNodeType}-${data.id}`),
+            id: nodeId,
             parent: null,
             children: [],
             internal: {
-              type: postNodeType,
+              type: nodeType,
               content: JSON.stringify(data),
               contentDigest: helpers.createContentDigest(data),
             },
-          });
+          };
+          helpers.actions.createNode(node);
+
+          // Add image nodes for explicitly defined fields
+          const imageFields = list.fields.filter(f => f?.fieldType === "image").map(f => f.fieldName);
+          imageFields.forEach(field => {
+            if (!data.fields[field]) {
+              return;
+            }
+            try {
+              const { id } = JSON.parse(data.fields[field]);
+              const url = generateListAssetItemUrl(site, id, host)
+              this.createImageNodeField(url, field, node, graph, helpers)();
+            } catch (err) {
+              console.error(`Couldn't retrieve the image for field "${field}", list "${list.title}", site "${site.name}"`, err);
+            }
+          })
         });
-      })
+      });
+    };
+  }
+
+  /**
+   * Create a graph file resource request
+   * @param {string} url The SharePoint host.
+   * @param {string} fieldName The field name.
+   * @param {Node} node The parent node.
+   * @param {Client} graph The graph client.
+   * @param {Helpers} helpers The Gatsby sourceNode API helpers.
+   */
+  createImageNodeField(url, fieldName, node, graph, helpers) {
+    return async () => {
+      const { createFileNodeFromBuffer } = require("gatsby-source-filesystem");
+      const { createNode, createNodeField } = helpers.actions;
+      const { createNodeId, getCache } = helpers;
+
+      const attachField = async (arrayBuffer) => {
+        const fileNode = await createFileNodeFromBuffer({
+          buffer: arrayBuffer,
+          getCache,
+          createNode,
+          createNodeId,
+          parentNodeId: node.id
+        })
+        // if the file was created, extend the node with "File"
+        if (fileNode) {
+          createNodeField({ node, name: `${fieldName}${this.imageFieldSuffix}`, value: fileNode.id })
+        } 
+      }
+
+      await graph.api(url)
+        .getStream()
+        .then((stream) => {
+          let chunks = [];
+          stream.on('data', chunk => {
+              chunks.push(chunk);
+          });
+          stream.on('end', () => {
+              const buffer = Buffer.concat(chunks);
+              attachField(buffer)
+          });
+        })
+        .catch((err) => {
+          console.log(err);
+        });
     }
   }
 }

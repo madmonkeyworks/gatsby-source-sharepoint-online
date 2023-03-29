@@ -9,7 +9,13 @@ module.exports = {
     slogan: `Seeking opportunities`, 
     description: `This online meeting place is designed for COFRA Group employees to browse through - and get inspired by - the various available role opportunities within our group of companies. Start now to broaden your horizon.`
   },
+  flags: {
+    THE_FLAG: false
+  },
   plugins: [
+    `gatsby-plugin-image`,
+    `gatsby-plugin-sharp`,
+    `gatsby-transformer-sharp`,
     {
       resolve: "gatsby-source-sharepoint-online",
       options: {
@@ -25,7 +31,7 @@ module.exports = {
             lists: [
               {
                 title: 'Pages',
-                fields: ['Title', 'Pagetitle', 'Subtitle', 'Slug', 'Description', 'Parent']
+                fields: ['Title', 'Pagetitle', 'Subtitle', 'Slug', 'Description', 'Parent', {fieldName:"SEOImage", fieldType:"image"}]
               },
               {
                 title: 'Menus',
@@ -34,6 +40,10 @@ module.exports = {
               {
                 title: 'Variables',
                 fields: ['Title', 'Value']
+              },
+              {
+                title: 'Team',
+                fields: ["Title", {fieldName:"Avatar", fieldType:"image"}]
               }
               // {
               //   title: "Vacancies",
