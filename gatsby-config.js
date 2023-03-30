@@ -43,16 +43,8 @@ module.exports = {
               },
               {
                 title: 'Team',
-                fields: ["Title", {fieldName:"Avatar", fieldType:"image"}]
+                fields: ["Title", {fieldName:"Avatar", fieldType:"image"}, "Published"]
               }
-              // {
-              //   title: "Vacancies",
-              //   customNodeName: "Vacancies",
-              //   fields: [],
-              //   createSlugs: true,
-              //   slugFieldName: "slug",
-              //   slugTemplate: ["Position", "Title"],
-              // }
             ],
           },
         ],
